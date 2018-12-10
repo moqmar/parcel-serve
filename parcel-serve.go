@@ -16,35 +16,36 @@ import (
 
 // Serve adds the files from the `prefix` directory to a Gin instance, either by starting parcel as a proxy, or by using static data supplied by go-bindata.
 func Serve(prefix string, r *gin.Engine, assetNames []string, MustAsset func(string) []byte) {
-	if gin.Mode() == "release" {
-
-		serveAsset := parcelAssetHandler(prefix+"/dist", MustAsset)
-		for _, asset := range assetNames {
-			r.GET(strings.TrimSuffix(strings.TrimPrefix(asset, prefix+"/dist"), "index.html"), serveAsset)
-		}
-
-		// Fall back to last index.html if not found
-		r.Use(func(c *gin.Context) {
-			path := strings.Trim(c.Request.URL.Path, "/")
-			segments := strings.SplitAfter(path, "/")
-			if path == "" {
-				c.Next()
-				return
-			}
-			c.Request.URL.Path = "/" + strings.Join(segments[:len(segments)-1], "")
-			r.HandleContext(c)
-		})
-
-	} else {
+	if gin.Mode() != "release" {
 
 		parcel := exec.Command("parcel", "index.html")
 		parcel.Stdout = os.Stdout
 		parcel.Stderr = os.Stderr
 		parcel.Dir, _ = filepath.Abs(prefix + "/")
-		parcel.Start()
-		r.Use(parcelProxy("127.0.0.1:1234"))
+		err := parcel.Start()
+		if err == nil {
+			r.Use(parcelProxy("127.0.0.1:1234"))
+			return
+		}
 
 	}
+
+	serveAsset := parcelAssetHandler(prefix+"/dist", MustAsset)
+	for _, asset := range assetNames {
+		r.GET(strings.TrimSuffix(strings.TrimPrefix(asset, prefix+"/dist"), "index.html"), serveAsset)
+	}
+
+	// Fall back to last index.html if not found
+	r.Use(func(c *gin.Context) {
+		path := strings.Trim(c.Request.URL.Path, "/")
+		segments := strings.SplitAfter(path, "/")
+		if path == "" {
+			c.Next()
+			return
+		}
+		c.Request.URL.Path = "/" + strings.Join(segments[:len(segments)-1], "")
+		r.HandleContext(c)
+	})
 }
 
 func parcelAssetHandler(prefix string, MustAsset func(string) []byte) gin.HandlerFunc {
